@@ -5,7 +5,10 @@ const path = require("path")
 
 const OFFICIAL_URL = "https://www.milkywayidle.com/game_data/marketplace.json"
 const HISTORY_FILE = path.join(__dirname, "history.json")
+const TEMP_HISTORY_FILE = path.join(__dirname, "history.json.tmp")
 const RETENTION_SECONDS = 5 * 24 * 60 * 60
+const MIN_SNAPSHOT_KEYS = 100
+const MIN_EXISTING_RATIO = 0.7
 
 /** 官方格式 marketData[item][level]={a,b,p,v} → { "{item}|{level}": {a,b,p,v} }，缺省字段用 -1 */
 function buildSnapshot(marketData) {
@@ -77,9 +80,24 @@ async function main() {
 
   const now = Math.floor(Date.now() / 1000)
   const snapshot = buildSnapshot(data.marketData)
+  const snapshotSize = Object.keys(snapshot).length
+  const existingSize = Object.keys(existing).length
+  if (snapshotSize < MIN_SNAPSHOT_KEYS) {
+    throw new Error(`新快照条目过少: ${snapshotSize}`)
+  }
+  if (existingSize >= MIN_SNAPSHOT_KEYS && snapshotSize < existingSize * MIN_EXISTING_RATIO) {
+    throw new Error(`新快照疑似不完整: ${snapshotSize}/${existingSize}`)
+  }
   const history = mergeHistory(existing, snapshot, data.timestamp, now)
 
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify({ updatedAt: data.timestamp, history }))
+  const output = JSON.stringify({ schemaVersion: 2, updatedAt: data.timestamp, history })
+  fs.writeFileSync(TEMP_HISTORY_FILE, output)
+  const verified = JSON.parse(fs.readFileSync(TEMP_HISTORY_FILE, "utf8"))
+  if (!verified.history || Object.keys(verified.history).length < MIN_SNAPSHOT_KEYS) {
+    fs.unlinkSync(TEMP_HISTORY_FILE)
+    throw new Error("输出文件校验失败，保留上一版数据")
+  }
+  fs.renameSync(TEMP_HISTORY_FILE, HISTORY_FILE)
   const pointCount = Object.values(history).reduce((sum, pts) => sum + pts.length, 0)
   console.log(`采集完成: ${Object.keys(history).length} 组合, ${pointCount} 点, updatedAt=${data.timestamp}`)
 }
@@ -87,7 +105,7 @@ async function main() {
 if (require.main === module) {
   main().catch(e => {
     console.error(e)
-    process.exit(0)
+    process.exit(1)
   })
 }
 

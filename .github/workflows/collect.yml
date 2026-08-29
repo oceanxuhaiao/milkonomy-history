@@ -1,8 +1,8 @@
 name: Collect Market History
 on:
   schedule:
-    # 每小时 :23 分（官方数据约整点后几分钟更新）
-    - cron: "23 * * * *"
+    # 每12小时采集一次，错开整点高峰
+    - cron: "23 0,12 * * *"
   workflow_dispatch:
   push:
     branches: [main]
@@ -18,11 +18,17 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout gh-pages
+      - name: Checkout collector
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout gh-pages data
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           fetch-depth: 0
+          path: site
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -30,9 +36,17 @@ jobs:
           node-version: 22
 
       - name: Run collect
-        run: node collect.js
+        working-directory: site
+        run: |
+          cp ../source/collect.js ../source/test.js .
+          node collect.js
+
+      - name: Validate generated data
+        working-directory: site
+        run: node test.js && node -e "const d=require('./history.json'); if(!d.updatedAt || !d.history || Object.keys(d.history).length < 100) process.exit(1)"
 
       - name: Commit and force push history.json
+        working-directory: site
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

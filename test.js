@@ -65,3 +65,8 @@ test("mergeHistory 跳过损坏的旧点", () => {
   assert.strictEqual(result["/items/sugar|0"].length, 1)
   assert.strictEqual(result["/items/sugar|0"][0].v, 70)
 })
+
+test("buildSnapshot 对缺省字段使用 -1，避免异常值冒充成交", () => {
+  const snap = buildSnapshot({ "/items/a": { "0": {} } })
+  assert.deepStrictEqual(snap["/items/a|0"], { a: -1, b: -1, p: -1, v: -1 })
+})
